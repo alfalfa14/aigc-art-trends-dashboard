@@ -206,11 +206,8 @@ def create_bubble_map_figure(filtered):
 # ------------------------------------------------------------
 # 5. DASH APP CREATION
 # ------------------------------------------------------------
-# Consulted with AI on how callbacks work in Dash: when the user clicks a tab or moves the slider, Dash automatically re-runs this function and updates the page without reloading.
-# AI explained that Output() targets the component to update and Input() listens for changes. 
-# WHICH ARE REFLECTED IN THE COMMENT OF SECTION 7.
-# When the user clicks a tab or moves the slider, Dash automatically re-runs this function.
-# AI also suggested using suppress_callback_exceptions=True so that components inside tabs (like style-selector) don't throw errors when they are not yet visible on the page.
+# Consulted with AI on how to prevent callback errors when components inside tabs are not yet visible on the page.
+# AI suggested adding suppress_callback_exceptions=True to Dash(__name__).
 app = Dash(__name__, suppress_callback_exceptions=True)
 server = app.server
 
@@ -347,11 +344,7 @@ app.layout = html.Div(
 # ------------------------------------------------------------
 # 7. CALLBACK: RENDER TAB CONTENT
 # ------------------------------------------------------------
-# 
-# Applying the AI explanation from section 5:
-# 
-# Consulted with AI on how callbacks work in Dash: when the user clicks a tab or moves the slider, Dash automatically re-runs this function and updates the page without reloading.
-# AI explained that Output() targets the component to update and Input() listens for changes. 
+
 
 @app.callback(Output("tab-content", "children"), Input("plot-tabs", "value"), Input("quarter-range", "value"))
 def render_tab(active_tab, quarter_range):
