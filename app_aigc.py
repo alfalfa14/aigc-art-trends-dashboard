@@ -311,7 +311,7 @@ app.layout = html.Div(
                                     className="folder-tabs",
                                     children=[
                                         dcc.Tab(
-                                            label="Style trend",
+                                            label="Style Trend",
                                             value="trend",
                                             className="folder-tab",
                                             selected_className="folder-tab--selected",
@@ -323,7 +323,7 @@ app.layout = html.Div(
                                             selected_className="folder-tab--selected",
                                         ),
                                         dcc.Tab(
-                                            label="World map",
+                                            label="World Map",
                                             value="worldmap",
                                             className="folder-tab",
                                             selected_className="folder-tab--selected",
@@ -399,7 +399,7 @@ def render_tab(active_tab, quarter_range):
                     ],
                 ),
                 dcc.Markdown(
-                    "**Reading the chart:** a rising line means the style became more "
+                    "**Reading the chart:** A rising line means the style became more "
                     "prominent relative to others over the selected period.",
                     className="plot-narrative after",
                 ),
@@ -424,7 +424,7 @@ def render_tab(active_tab, quarter_range):
                     className="plot-frame",
                 ),
                 dcc.Markdown(
-                    "**Reading the chart:** look across a row to see which styles "
+                    "**Reading the chart:** Look across a row to see which styles "
                     "a region favors, or down a column to see which regions produce "
                     "the most of a given style.",
                     className="plot-narrative after",
@@ -454,7 +454,7 @@ def render_tab(active_tab, quarter_range):
                     className="plot-frame map-frame",
                 ),
                 dcc.Markdown(
-                    "**Reading the map:** larger bubbles mean more artworks from that region. "
+                    "**Reading the map:** Larger bubbles mean more artworks from that region. "
                     "Darker color means higher average popularity score.",
                     className="plot-narrative after",
                 ),
