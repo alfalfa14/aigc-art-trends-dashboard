@@ -681,7 +681,8 @@ a,
   z-index: 20;
 
   left: 115px;
-  bottom: -38px;
+  bottom:0;
+  transform:translateY(38px);
 
   width: 450px;
   min-height: 295px;
