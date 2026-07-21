@@ -1,74 +1,247 @@
-# The making of this project used app.py from Week 7 of DIGS 20004 as a main reference for the structure.
-# I was in charge of all the decision-making of the contents to present, and AI was consulted with to achieve the visualizations I could not figure out myself.
 """
-AI Art Style Trends Dashboard
-------------------------------
-
-This app visualizes how AI-generated art styles have shifted from 2022 to 2024, using the ai_generated_art_trends_2024.csv dataset.
-
-Run with:
-    python3 app_aigc.py
-
-Then open:
-    http://127.0.0.1:8050/
+AIGC Atlas — AI-Generated Art Style Trends
 """
 
-# ------------------------------------------------------------
-# 1. IMPORT LIBRARIES
-# ------------------------------------------------------------
 from pathlib import Path
+
 import pandas as pd
-from dash import Dash, html, dcc, Input, Output
 import plotly.express as px
 
+from dash import (
+    Dash,
+    html,
+    dcc,
+    Input,
+    Output,
+    State,
+    ctx,
+)
+
 
 # ------------------------------------------------------------
-# 2. DEFINE PROJECT PATHS
+# DATA
 # ------------------------------------------------------------
+
 BASE_DIR = Path(__file__).resolve().parent
 DATA_FILE = BASE_DIR / "ai_generated_art_trends_2024.csv"
 
-
-# ------------------------------------------------------------
-# 3. LOAD DATA
-# ------------------------------------------------------------
-# Consulted with by showing the "load data" section from the app.py from Week 7 Module, and learned the formating logistics.
 df = pd.read_csv(DATA_FILE)
+
 df["Creation_Date"] = pd.to_datetime(df["Creation_Date"])
 df["Year"] = df["Creation_Date"].dt.year
-# I needed quarterly labels so consulted with AI to use dt.to_period("Q").astype(str) to convert dates into strings like "2022Q3" for the RangeSlider marks.
-df["Quarter"] = df["Creation_Date"].dt.to_period("Q").astype(str)
+df["Quarter"] = (
+    df["Creation_Date"]
+    .dt.to_period("Q")
+    .astype(str)
+)
 
-ALL_STYLES = sorted(df["Art_Style"].unique())
-ALL_REGIONS = sorted(df["Region"].unique())
-ALL_QUARTERS = sorted(df["Quarter"].unique())
-QUARTER_MARKS = {i: q for i, q in enumerate(ALL_QUARTERS) if i % 2 == 0 or i == len(ALL_QUARTERS) - 1}
+ALL_STYLES = sorted(df["Art_Style"].dropna().unique())
+ALL_REGIONS = sorted(df["Region"].dropna().unique())
+ALL_YEARS = sorted(df["Year"].dropna().unique())
+ALL_QUARTERS = sorted(df["Quarter"].dropna().unique())
+
+PALETTE = px.colors.qualitative.Pastel
 
 
 # ------------------------------------------------------------
-# 4. CHART FUNCTIONS
+# SHARED CHART STYLE
 # ------------------------------------------------------------
-def create_style_trend_figure(filtered, selected_styles):
+
+def apply_style(fig):
     """
-    Line chart: share of each selected style per year within the filtered period.
+    Apply the shared light glass-dashboard style to Plotly charts.
     """
-    sub = filtered[filtered["Art_Style"].isin(selected_styles)]
+
+    fig.update_layout(
+        template="plotly_white",
+
+        font={
+            "family": "Inter, Arial, sans-serif",
+            "size": 12,
+            "color": "#343242",
+        },
+
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+        plot_bgcolor="rgba(255, 255, 255, 0.10)",
+
+        margin={
+            "l": 55,
+            "r": 30,
+            "t": 64,
+            "b": 50,
+        },
+
+        hovermode="x unified",
+
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+            "font": {
+                "size": 10,
+                "color": "#454252",
+            },
+            "bgcolor": "rgba(255, 255, 255, 0)",
+        },
+
+        hoverlabel={
+            "bgcolor": "rgba(250, 250, 253, 0.96)",
+            "bordercolor": "rgba(50, 50, 70, 0.14)",
+            "font": {
+                "color": "#292735",
+                "family": "Inter, Arial, sans-serif",
+            },
+        },
+
+        transition={
+            "duration": 350,
+            "easing": "cubic-in-out",
+        },
+    )
+
+    fig.update_xaxes(
+        gridcolor="rgba(44, 42, 61, 0.08)",
+        linecolor="rgba(44, 42, 61, 0.14)",
+        tickfont={
+            "color": "#625f70",
+            "size": 11,
+        },
+        title_font={
+            "color": "#454252",
+            "size": 12,
+        },
+        zeroline=False,
+        showline=True,
+    )
+
+    fig.update_yaxes(
+        gridcolor="rgba(44, 42, 61, 0.08)",
+        linecolor="rgba(44, 42, 61, 0.14)",
+        tickfont={
+            "color": "#625f70",
+            "size": 11,
+        },
+        title_font={
+            "color": "#454252",
+            "size": 12,
+        },
+        zeroline=False,
+        showline=True,
+    )
+
+    return fig
+
+
+# ------------------------------------------------------------
+# FILTER DATA
+# ------------------------------------------------------------
+
+def get_filtered(year, region, style):
+    """
+    Return a filtered copy of the original dataset.
+    """
+
+    filtered_df = df.copy()
+
+    if year and "All" not in year:
+        filtered_df = filtered_df[
+            filtered_df["Year"].isin(
+                [int(y) for y in year]
+            )
+        ]
+
+    if region and "All" not in region:
+        filtered_df = filtered_df[
+            filtered_df["Region"].isin(region)
+        ]
+
+    if style and "All" not in style:
+        filtered_df = filtered_df[
+            filtered_df["Art_Style"].isin(style)
+        ]
+
+    return filtered_df
+
+
+# ------------------------------------------------------------
+# EMPTY CHART
+# ------------------------------------------------------------
+
+def create_empty_chart(message="No data available for this selection."):
+    """
+    Create a blank chart when the selected filters return no rows.
+    """
+
+    fig = px.scatter()
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+        plot_bgcolor="rgba(0, 0, 0, 0)",
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        annotations=[
+            {
+                "text": message,
+                "x": 0.5,
+                "y": 0.5,
+                "xref": "paper",
+                "yref": "paper",
+                "showarrow": False,
+                "font": {
+                    "family": "Inter, Arial, sans-serif",
+                    "size": 18,
+                    "color": "#5f5b6d",
+                },
+            }
+        ],
+        margin={
+            "l": 20,
+            "r": 20,
+            "t": 20,
+            "b": 20,
+        },
+    )
+
+    return fig
+
+
+# ------------------------------------------------------------
+# CHART 1: STYLE TREND
+# ------------------------------------------------------------
+
+def create_style_trend(filtered_df, selected_styles):
+    """
+    Show the percentage share of each art style by year.
+    """
+
+    if filtered_df.empty:
+        return create_empty_chart()
 
     style_year = (
-        # Consulted with AI on how to count artworks per Year x Art_Style combination.
-        # AI suggested groupby(）to summarize artwork counts by year and style as a way to get a clean count table without writing a loop.
-        sub.groupby(["Year", "Art_Style"])
+        filtered_df
+        .groupby(["Year", "Art_Style"])
         .size()
         .reset_index(name="Count")
     )
 
+    if style_year.empty:
+        return create_empty_chart()
+
     style_year["Percentage"] = (
-        # Consulted with AI on how to calculate each style's percentage share within each year. 
-        # AI suggested transform(lambda x: x / x.sum() * 100) because it keeps the original row count while adding the percentage as a new column.
-        style_year.groupby("Year")["Count"]
-        .transform(lambda x: x / x.sum() * 100)
+        style_year
+        .groupby("Year")["Count"]
+        .transform(
+            lambda values: values / values.sum() * 100
+        )
         .round(1)
     )
+
+    if selected_styles and "All" not in selected_styles:
+        style_year = style_year[
+            style_year["Art_Style"].isin(selected_styles)
+        ]
 
     fig = px.line(
         style_year,
@@ -76,82 +249,310 @@ def create_style_trend_figure(filtered, selected_styles):
         y="Percentage",
         color="Art_Style",
         markers=True,
-        title="Share of AI Artworks by Style per Year (%)",
-        color_discrete_sequence=px.colors.qualitative.Set2,
+        color_discrete_sequence=PALETTE,
     )
 
-    fig.update_traces(line={"width": 2.5}, marker={"size": 8})
+    fig.update_traces(
+        line={
+            "width": 2.8,
+        },
+        marker={
+            "size": 8,
+            "line": {
+                "width": 1.5,
+                "color": "rgba(255, 255, 255, 0.85)",
+            },
+        },
+        hovertemplate=(
+            "<b>%{fullData.name}</b><br>"
+            "Year: %{x}<br>"
+            "Share: %{y:.1f}%"
+            "<extra></extra>"
+        ),
+    )
 
     fig.update_layout(
-        template="plotly_white",
-        font={"family": "Inter, Arial, sans-serif", "size": 13},
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(255,255,255,0.92)",
-        margin={"l": 40, "r": 25, "t": 70, "b": 45},
-        legend_title_text="Art Style",
-        yaxis_title="Percentage (%)",
-        xaxis={"tickmode": "linear", "dtick": 1, "title": "Year"},
-        hovermode="x unified",
+        xaxis={
+            "tickmode": "linear",
+            "dtick": 1,
+            "title": "Year",
+        },
+        yaxis={
+            "title": "Share (%)",
+            "ticksuffix": "%",
+        },
+        legend_title_text="Style",
     )
 
-    return fig
+    return apply_style(fig)
 
-# Consulted with AI how to make a heatmap showing artwork count for each Region x Art_Style combination. 
-# AI suggested using groupby to get the counts, pivot() to reshape the data into a matrix, and px.imshow() to render it as a heatmap with a blue color scale.
-def create_heatmap_figure(filtered):
+
+# ------------------------------------------------------------
+# CHART 2: STYLE POPULARITY
+# ------------------------------------------------------------
+
+def create_style_popularity(filtered_df, selected_styles):
     """
-    Heatmap: artwork count for each Region x Art_Style pair.
+    Show average popularity score for each art style.
     """
-    heat_data = (
-        filtered.groupby(["Region", "Art_Style"])
+
+    if filtered_df.empty:
+        return create_empty_chart()
+
+    style_popularity = (
+        filtered_df
+        .groupby("Art_Style")["Popularity_Score"]
+        .mean()
+        .round(1)
+        .reset_index()
+        .sort_values(
+            "Popularity_Score",
+            ascending=True,
+        )
+    )
+
+    if selected_styles and "All" not in selected_styles:
+        style_popularity = style_popularity[
+            style_popularity["Art_Style"].isin(selected_styles)
+        ]
+
+    if style_popularity.empty:
+        return create_empty_chart()
+
+    fig = px.bar(
+        style_popularity,
+        x="Popularity_Score",
+        y="Art_Style",
+        orientation="h",
+        color="Popularity_Score",
+        color_continuous_scale=[
+            "#dfe8f8",
+            "#c9c2e8",
+            "#aa8bd4",
+            "#7255a8",
+        ],
+    )
+
+    fig.update_traces(
+        marker_line_width=0,
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Average score: %{x:.1f}"
+            "<extra></extra>"
+        ),
+    )
+
+    fig.update_layout(
+        coloraxis_showscale=False,
+        yaxis_title="",
+        xaxis_title="Average Popularity Score",
+        bargap=0.28,
+    )
+
+    return apply_style(fig)
+
+
+# ------------------------------------------------------------
+# CHART 3: REGION BAR
+# ------------------------------------------------------------
+
+def create_region_bar(filtered_df, selected_regions):
+    """
+    Show artwork volume and average popularity by region.
+    """
+
+    if filtered_df.empty:
+        return create_empty_chart()
+
+    region_data = (
+        filtered_df
+        .groupby("Region")
+        .agg(
+            Count=("Artwork_ID", "count"),
+            Avg_Score=("Popularity_Score", "mean"),
+        )
+        .round(1)
+        .reset_index()
+        .sort_values(
+            "Count",
+            ascending=False,
+        )
+    )
+
+    if selected_regions and "All" not in selected_regions:
+        region_data = region_data[
+            region_data["Region"].isin(selected_regions)
+        ]
+
+    if region_data.empty:
+        return create_empty_chart()
+
+    fig = px.bar(
+        region_data,
+        x="Region",
+        y="Count",
+        color="Avg_Score",
+        color_continuous_scale=[
+            "#d9eff2",
+            "#a8d6d8",
+            "#70b0b4",
+            "#397b85",
+        ],
+        hover_data={
+            "Avg_Score": True,
+            "Count": True,
+        },
+    )
+
+    fig.update_traces(
+        marker_line_width=0,
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "Artworks: %{y:,}<br>"
+            "Average score: %{marker.color:.1f}"
+            "<extra></extra>"
+        ),
+    )
+
+    fig.update_layout(
+        xaxis_title="Region",
+        yaxis_title="Number of Artworks",
+        bargap=0.24,
+        coloraxis_colorbar={
+            "title": "Avg Score",
+            "thickness": 10,
+            "len": 0.65,
+            "outlinewidth": 0,
+            "tickfont": {
+                "color": "#5f5b6d",
+            },
+            "title_font": {
+                "color": "#454252",
+            },
+        },
+    )
+
+    return apply_style(fig)
+
+
+# ------------------------------------------------------------
+# CHART 4: HEATMAP
+# ------------------------------------------------------------
+
+def create_heatmap(filtered_df):
+    """
+    Show the relationship between region and art style.
+    """
+
+    if filtered_df.empty:
+        return create_empty_chart()
+
+    heatmap_data = (
+        filtered_df
+        .groupby(["Region", "Art_Style"])
         .size()
         .reset_index(name="Count")
     )
-    # Consulted with AI on how to reshape the grouped data into a matrix for the heatmap.
-    # AI suggested pivot(index="Region", columns="Art_Style", values="Count") followed by fillna(0) to fill missing combinations.
-    heat_pivot = heat_data.pivot(
-        index="Region", columns="Art_Style", values="Count"
+
+    if heatmap_data.empty:
+        return create_empty_chart()
+
+    pivot_table = heatmap_data.pivot(
+        index="Region",
+        columns="Art_Style",
+        values="Count",
     ).fillna(0)
 
-    # Consulted with AI how to add a color scale legend to the heatmap.
-    # AI suggested setting color_continuous_scale="Blues" in px.imshow() and adding coloraxis_colorbar with a title in update_layout().
     fig = px.imshow(
-        heat_pivot,
-        title="Artwork Count by Region and Style",
-        color_continuous_scale="Blues",
+        pivot_table,
+        color_continuous_scale=[
+            "#edf3fb",
+            "#d2ddf3",
+            "#aebce2",
+            "#8279bc",
+            "#584982",
+        ],
         aspect="auto",
+        text_auto=False,
+    )
+
+    fig.update_traces(
+        hovertemplate=(
+            "<b>Region:</b> %{y}<br>"
+            "<b>Style:</b> %{x}<br>"
+            "<b>Artworks:</b> %{z:,}"
+            "<extra></extra>"
+        ),
     )
 
     fig.update_layout(
-        template="plotly_white",
-        font={"family": "Inter, Arial, sans-serif", "size": 13},
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin={"l": 40, "r": 25, "t": 70, "b": 45},
         xaxis_title="Art Style",
         yaxis_title="Region",
-        coloraxis_colorbar={"title": "Count"},
+        coloraxis_colorbar={
+            "title": "Count",
+            "thickness": 10,
+            "len": 0.65,
+            "outlinewidth": 0,
+            "tickfont": {
+                "color": "#5f5b6d",
+            },
+            "title_font": {
+                "color": "#454252",
+            },
+        },
     )
 
-    return fig
+    styled_fig = apply_style(fig)
 
-# Consulted with AI how to build a bubble map showing artwork count and average popularity score by region. 
-# AI suggested using px.scatter_geo() with manually defined lat/lon coordinates for each region, mapping bubble size to Count and color to Avg_Score, and using update_geos() to style the land, ocean, and country borders.
-def create_bubble_map_figure(filtered):
+    styled_fig.update_xaxes(
+        tickangle=-28,
+    )
+
+    return styled_fig
+
+
+# ------------------------------------------------------------
+# CHART 5: WORLD MAP
+# ------------------------------------------------------------
+
+def create_bubble_map(filtered_df, selected_regions):
     """
-    Bubble map: one circle per region, sized by artwork count,
-    colored by average Popularity_Score. Hover shows both values.
+    Show artwork count and average popularity on a global map.
     """
-    region_coords = {
-        "Africa":        {"lat":  2.0, "lon":  21.0},
-        "Asia":          {"lat": 34.0, "lon":  90.0},
-        "Europe":        {"lat": 54.0, "lon":  15.0},
-        "North America": {"lat": 45.0, "lon": -95.0},
-        "Oceania":       {"lat": -25.0, "lon": 135.0},
-        "South America": {"lat": -15.0, "lon": -55.0},
+
+    if filtered_df.empty:
+        return create_empty_chart()
+
+    coordinates = {
+        "Africa": {
+            "lat": 2.0,
+            "lon": 21.0,
+        },
+        "Asia": {
+            "lat": 34.0,
+            "lon": 90.0,
+        },
+        "Europe": {
+            "lat": 54.0,
+            "lon": 15.0,
+        },
+        "North America": {
+            "lat": 45.0,
+            "lon": -95.0,
+        },
+        "Oceania": {
+            "lat": -25.0,
+            "lon": 135.0,
+        },
+        "South America": {
+            "lat": -15.0,
+            "lon": -55.0,
+        },
     }
 
-    summary = (
-        filtered.groupby("Region")
+    map_data = (
+        filtered_df
+        .groupby("Region")
         .agg(
             Count=("Artwork_ID", "count"),
             Avg_Score=("Popularity_Score", "mean"),
@@ -160,180 +561,879 @@ def create_bubble_map_figure(filtered):
         .reset_index()
     )
 
-    summary["lat"] = summary["Region"].map(
-        lambda r: region_coords.get(r, {}).get("lat", 0)
+    if selected_regions and "All" not in selected_regions:
+        map_data = map_data[
+            map_data["Region"].isin(selected_regions)
+        ]
+
+    if map_data.empty:
+        return create_empty_chart()
+
+    map_data["lat"] = map_data["Region"].map(
+        lambda region: coordinates.get(
+            region,
+            {},
+        ).get(
+            "lat",
+            0,
+        )
     )
-    summary["lon"] = summary["Region"].map(
-        lambda r: region_coords.get(r, {}).get("lon", 0)
+
+    map_data["lon"] = map_data["Region"].map(
+        lambda region: coordinates.get(
+            region,
+            {},
+        ).get(
+            "lon",
+            0,
+        )
     )
 
     fig = px.scatter_geo(
-        summary,
+        map_data,
         lat="lat",
         lon="lon",
         size="Count",
         color="Avg_Score",
         hover_name="Region",
-        hover_data={"Count": True, "Avg_Score": True, "lat": False, "lon": False},
-        title="AI Artwork Volume and Popularity by Region<br><sup>Bubble size = number of artworks · Color = average Popularity Score (0–5000)</sup>",
-        color_continuous_scale="Teal",
-        size_max=60,
+        hover_data={
+            "Count": True,
+            "Avg_Score": True,
+            "lat": False,
+            "lon": False,
+        },
+        color_continuous_scale=[
+            "#d9eff2",
+            "#9bcdd0",
+            "#61a7ac",
+            "#397780",
+        ],
+        size_max=66,
         projection="natural earth",
+    )
+
+    fig.update_traces(
+        marker={
+            "line": {
+                "width": 2,
+                "color": "rgba(255, 255, 255, 0.8)",
+            },
+            "opacity": 0.9,
+        },
+        hovertemplate=(
+            "<b>%{hovertext}</b><br>"
+            "Artworks: %{customdata[0]:,}<br>"
+            "Average score: %{customdata[1]:.1f}"
+            "<extra></extra>"
+        ),
     )
 
     fig.update_geos(
         showland=True,
-        landcolor="rgb(244, 238, 224)",
+        landcolor="rgba(222, 228, 239, 0.82)",
+
         showocean=True,
-        oceancolor="rgb(216, 231, 239)",
+        oceancolor="rgba(196, 216, 240, 0.42)",
+
         showcountries=True,
-        countrycolor="rgb(180, 180, 180)",
+        countrycolor="rgba(76, 78, 98, 0.20)",
+
         showcoastlines=True,
-        coastlinecolor="rgb(120, 120, 120)",
+        coastlinecolor="rgba(76, 78, 98, 0.18)",
+
+        showframe=False,
+        bgcolor="rgba(0, 0, 0, 0)",
+
+        lataxis={
+            "showgrid": False,
+        },
+
+        lonaxis={
+            "showgrid": False,
+        },
     )
 
     fig.update_layout(
-        font={"family": "Inter, Arial, sans-serif", "size": 13},
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin={"l": 0, "r": 0, "t": 60, "b": 0},
-        height=500,
-        coloraxis_colorbar={"title": "Avg Score"},
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+        plot_bgcolor="rgba(0, 0, 0, 0)",
+
+        margin={
+            "l": 0,
+            "r": 0,
+            "t": 25,
+            "b": 0,
+        },
+
+        font={
+            "family": "Inter, Arial, sans-serif",
+            "size": 12,
+            "color": "#343242",
+        },
+
+        coloraxis_colorbar={
+            "title": "Avg Score",
+            "thickness": 10,
+            "len": 0.65,
+            "outlinewidth": 0,
+            "tickfont": {
+                "color": "#5f5b6d",
+            },
+            "title_font": {
+                "color": "#454252",
+            },
+        },
+
+        hoverlabel={
+            "bgcolor": "rgba(250, 250, 253, 0.96)",
+            "bordercolor": "rgba(50, 50, 70, 0.14)",
+            "font": {
+                "color": "#292735",
+                "family": "Inter, Arial, sans-serif",
+            },
+        },
     )
 
     return fig
 
 
 # ------------------------------------------------------------
-# 5. DASH APP CREATION
+# CHART 6: PLATFORM BAR
 # ------------------------------------------------------------
-# Consulted with AI on how to prevent callback errors when components inside tabs are not yet visible on the page.
-# AI suggested adding suppress_callback_exceptions=True to Dash(__name__).
-app = Dash(__name__, suppress_callback_exceptions=True)
+
+def create_platform_bar(filtered_df):
+    """
+    Show artwork volume and popularity by platform.
+    """
+
+    if filtered_df.empty:
+        return create_empty_chart()
+
+    platform_data = (
+        filtered_df
+        .groupby("Platform")
+        .agg(
+            Count=("Artwork_ID", "count"),
+            Avg_Score=("Popularity_Score", "mean"),
+        )
+        .round(1)
+        .reset_index()
+        .sort_values(
+            "Count",
+            ascending=False,
+        )
+    )
+
+    if platform_data.empty:
+        return create_empty_chart()
+
+    fig = px.bar(
+        platform_data,
+        x="Platform",
+        y="Count",
+        color="Avg_Score",
+        color_continuous_scale=[
+            "#eee8f7",
+            "#d1bee6",
+            "#aa8bd0",
+            "#74519d",
+        ],
+        hover_data={
+            "Avg_Score": True,
+            "Count": True,
+        },
+    )
+
+    fig.update_traces(
+        marker_line_width=0,
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "Artworks: %{y:,}<br>"
+            "Average score: %{marker.color:.1f}"
+            "<extra></extra>"
+        ),
+    )
+
+    fig.update_layout(
+        xaxis_title="Platform",
+        yaxis_title="Number of Artworks",
+        bargap=0.24,
+        coloraxis_colorbar={
+            "title": "Avg Score",
+            "thickness": 10,
+            "len": 0.65,
+            "outlinewidth": 0,
+        },
+    )
+
+    return apply_style(fig)
+
+
+# ------------------------------------------------------------
+# CHART 7: TOOLS BAR
+# ------------------------------------------------------------
+
+def create_tools_bar(filtered_df):
+    """
+    Show artwork volume and average popularity by AI tool.
+    """
+
+    if filtered_df.empty:
+        return create_empty_chart()
+
+    tool_data = (
+        filtered_df
+        .groupby("Tools_Used")
+        .agg(
+            Count=("Artwork_ID", "count"),
+            Avg_Score=("Popularity_Score", "mean"),
+        )
+        .round(1)
+        .reset_index()
+        .sort_values(
+            "Count",
+            ascending=False,
+        )
+    )
+
+    if tool_data.empty:
+        return create_empty_chart()
+
+    fig = px.bar(
+        tool_data,
+        x="Tools_Used",
+        y="Count",
+        color="Avg_Score",
+        color_continuous_scale=[
+            "#d9eff2",
+            "#acd6d6",
+            "#73afb1",
+            "#3e7e86",
+        ],
+        hover_data={
+            "Avg_Score": True,
+            "Count": True,
+        },
+    )
+
+    fig.update_traces(
+        marker_line_width=0,
+        hovertemplate=(
+            "<b>%{x}</b><br>"
+            "Artworks: %{y:,}<br>"
+            "Average score: %{marker.color:.1f}"
+            "<extra></extra>"
+        ),
+    )
+
+    fig.update_layout(
+        xaxis_title="AI Tool",
+        yaxis_title="Number of Artworks",
+        bargap=0.24,
+        coloraxis_colorbar={
+            "title": "Avg Score",
+            "thickness": 10,
+            "len": 0.65,
+            "outlinewidth": 0,
+        },
+    )
+
+    styled_fig = apply_style(fig)
+
+    styled_fig.update_xaxes(
+        tickangle=-20,
+    )
+
+    return styled_fig
+
+
+# ------------------------------------------------------------
+# APP
+# ------------------------------------------------------------
+
+app = Dash(
+    __name__,
+    suppress_callback_exceptions=True,
+)
+
 server = app.server
 
 
 # ------------------------------------------------------------
-# 6. APP LAYOUT
+# NAVIGATION DATA
 # ------------------------------------------------------------
+
+NAV_ITEMS = [
+    {
+        "id": "style-trend",
+        "icon": "↗",
+        "label": "Style Trend",
+    },
+    {
+        "id": "style-pop",
+        "icon": "★",
+        "label": "Popularity",
+    },
+    {
+        "id": "region-bar",
+        "icon": "◎",
+        "label": "By Region",
+    },
+    {
+        "id": "heatmap",
+        "icon": "▦",
+        "label": "Heatmap",
+    },
+    {
+        "id": "world-map",
+        "icon": "◉",
+        "label": "World Map",
+    },
+    {
+        "id": "platform",
+        "icon": "▯",
+        "label": "Platforms",
+    },
+    {
+        "id": "tools",
+        "icon": "✦",
+        "label": "Tools",
+    },
+]
+
+
+CHART_DESC = {
+    "style-trend": (
+        "Style share over time — see which visual styles are "
+        "rising or fading across 2022–2024."
+    ),
+
+    "style-pop": (
+        "Average popularity score by style — revealing which "
+        "aesthetics resonate most strongly with audiences."
+    ),
+
+    "region-bar": (
+        "Artwork volume by region — compare where AI-generated "
+        "art is being produced and how strongly audiences engage."
+    ),
+
+    "heatmap": (
+        "Region and style matrix — uncover whether different "
+        "parts of the world favor different visual aesthetics."
+    ),
+
+    "world-map": (
+        "Global bubble map — bubble size represents artwork "
+        "volume while color represents average popularity."
+    ),
+
+    "platform": (
+        "Platform distribution — explore where AI artwork is "
+        "shared and which platforms generate the most reach."
+    ),
+
+    "tools": (
+        "AI tool landscape — compare the generative tools used "
+        "by artists and the engagement associated with each one."
+    ),
+}
+
+
+CHART_TITLES = {
+    "style-trend": "Style Trend",
+    "style-pop": "Popularity",
+    "region-bar": "By Region",
+    "heatmap": "Style Heatmap",
+    "world-map": "World Map",
+    "platform": "Platforms",
+    "tools": "Creative Tools",
+}
+# ------------------------------------------------------------
+# LAYOUT
+# ------------------------------------------------------------
+
 app.layout = html.Div(
-    id="app-shell",
-    className="app-shell theme-light",
+    id="page-shell",
     children=[
         html.Div(
-            className="hero",
+            id="root",
             children=[
-                html.P("DIGS 20004 Final Project", className="eyebrow"),
-                #Consulted with AI for the method of letter-spacing.
-                html.H1("AI-Generated Art Style Trends", style={"letterSpacing": "0.01em"}),
-                html.P(
-                    "How have different AI-generated art styles evolved from 2022 to 2024?",
-                    className="hero-subtitle",
-                ),
-            ],
-        ),
-        html.Div(
-            className="main-grid",
-            children=[
-                # ------------------------------------------------
-                # LEFT CONTROL PANEL
-                # ------------------------------------------------
-                html.Aside(
-                    className="control-panel",
+                # Background
+                html.Div(
+                    id="bg",
+                    n_clicks=0,
                     children=[
-                        html.H2("Controls"),
-                        html.P(
-                            "Drag the slider to filter all charts "
-                            "by a quarter range."
+                        html.Img(
+                            src="/assets/hero-bg.jpg",
+                            id="bg-dark",
+                            style={"opacity":1},
                         ),
-                        html.Label("Time range (by quarter)", className="control-label"),
-                        dcc.RangeSlider(
-                            id="quarter-range",
-                            min=0,
-                            max=len(ALL_QUARTERS) - 1,
-                            step=1,
-                            value=[0, len(ALL_QUARTERS) - 1],
-                            marks=QUARTER_MARKS,
-                            allowCross=False,
-                            tooltip={"placement": "bottom", "always_visible": False},
+
+                        html.Img(
+                            src="/assets/brightbg.png",
+                            id="bg-light",
+                            style={"opacity":0},
+                        ),
+                    ],
+                ),
+
+                # Decorative background glow
+                html.Div(className="ambient-glow ambient-glow-one"),
+                html.Div(className="ambient-glow ambient-glow-two"),
+
+                # --------------------------------------------------
+                # TOP NAVIGATION
+                # --------------------------------------------------
+                html.Div(
+                    id="topnav",
+                    children=[
+                        html.A(
+                            [
+                                html.Span("AIGC Atlas"),
+                            ],
+                            id="nav-brand",
+                            href="#",
+                        ),
+
+                        html.Div(
+                            id="nav-filters",
+                            children=[
+
+                                html.Div(
+                                    className="nav-filter-item",
+                                    children=[
+                                        html.Div(
+                                            className="filter-heading",
+                                            children=[
+                                                html.Span(
+                                                    "Year",
+                                                    className="filter-label",
+                                                ),
+                                            ],
+                                        ),
+                                        dcc.Dropdown(
+                                            id="filter-year",
+                                            options=[
+                                                {"label": "All Years", "value": "All"}
+                                            ] + [
+                                                {
+                                                    "label": str(year),
+                                                    "value": str(year),
+                                                }
+                                                for year in ALL_YEARS
+                                            ],
+                                            value=["All"],
+                                            multi=True,
+                                            closeOnSelect=False,
+                                            clearable=False,
+                                            searchable=False,
+                                            className="nav-dropdown",
+                                        ),
+                                    ],
+                                ),
+
+                                html.Div(
+                                    className="nav-filter-item",
+                                    children=[
+                                        html.Div(
+                                            className="filter-heading",
+                                            children=[
+                                                html.Span(
+                                                    "Region",
+                                                    className="filter-label",
+                                                ),
+                                            ],
+                                        ),
+                                        dcc.Dropdown(
+                                            id="filter-region",
+                                            options=[
+                                                {"label": "All Regions", "value": "All"}
+                                            ] + [
+                                                {
+                                                    "label": region,
+                                                    "value": region,
+                                                }
+                                                for region in ALL_REGIONS
+                                            ],
+                                            value=["All"],
+                                            multi=True,
+                                            closeOnSelect=False,
+                                            clearable=False,
+                                            searchable=False,
+                                            className="nav-dropdown",
+                                        ),
+                                    ],
+                                ),
+
+                                html.Div(
+                                    className="nav-filter-item",
+                                    children=[
+                                        html.Div(
+                                            className="filter-heading",
+                                            children=[
+                                                html.Span(
+                                                    "Style",
+                                                    className="filter-label",
+                                                ),
+                                            ],
+                                        ),
+                                        dcc.Dropdown(
+                                            id="filter-style",
+                                            options=[
+                                                {"label": "All Styles", "value": "All"}
+                                            ] + [
+                                                {
+                                                    "label": style,
+                                                    "value": style,
+                                                }
+                                                for style in ALL_STYLES
+                                            ],
+                                            value=["All"],
+                                            multi=True,
+                                            closeOnSelect=False,
+                                            clearable=False,
+                                            searchable=False,
+                                            className="nav-dropdown",
+                                        ),
+                                    ],
+                                ),
+
+                            ],
+                        ),
+
+                        html.A(
+                            [
+                                html.Span("Portfolio"),
+                                html.Span("↗", className="top-button-arrow"),
+                            ],
+                            id="nav-portfolio",
+                            href=(
+                                "https://portfolio-website-english-"
+                                "nvxa.vercel.app"
+                            ),
+                            target="_blank",
+                            rel="noopener noreferrer",
+                        ),
+                    ],
+                ),
+
+                # --------------------------------------------------
+                # LEFT NAVIGATION
+                # --------------------------------------------------
+                html.Div(
+                    id="leftnav",
+                    children=[
+                        html.Div(
+                            className="leftnav-primary-group",
+                            children=[
+                                html.Button(
+                                    children=[
+                                        html.Span(
+                                            item["icon"],
+                                            className="nav-icon",
+                                        ),
+                                        html.Span(
+                                            item["label"],
+                                            className="nav-tooltip",
+                                        ),
+                                    ],
+                                    id={
+                                        "type": "nav-btn",
+                                        "index": item["id"],
+                                    },
+                                    className="nav-btn",
+                                    n_clicks=0,
+                                )
+                                for index, item in enumerate(NAV_ITEMS)
+                            ],
+                        ),
+
+                        html.Div(
+                            className="leftnav-secondary-group",
+                            children=[
+                                html.Button(
+                                    "☾",
+                                    id="dark-mode-btn",
+                                    className="utility-btn",
+                                    type="button",
+                                    title="Dark mode",
+                                    n_clicks=0,
+                                ),
+                                html.Button(
+                                    "☀",
+                                    id="light-mode-btn",
+                                    className="utility-btn",
+                                    type="button",
+                                    title="Light mode",
+                                    n_clicks=0,
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+
+                # --------------------------------------------------
+                # HERO
+                # --------------------------------------------------
+                html.Div(
+                    id="main-title",
+                    style={
+                        "opacity": "1",
+                        "pointerEvents": "none",
+                        "transform": "translateY(0)",
+                    },
+                    children=[
+                        html.Div(
+                            "GENERATIVE ART EXPLORATION",
+                            className="hero-eyebrow",
+                        ),
+                        html.H1(
+                            [
+                                html.Span(
+                                    "A New Way Of",
+                                    className="hero-line",
+                                ),
+                                html.Span(
+                                    "Seeing AI Art",
+                                    className=(
+                                        "hero-line hero-line-indent"
+                                    ),
+                                ),
+                            ],
+                            id="hero-title",
+                        ),
+                        html.P(
+                            (
+                                "Explore visual patterns, cultural "
+                                "preferences, platform trends, and the "
+                                "tools shaping AI-generated art across "
+                                "the world."
+                            ),
+                            id="hero-sub",
+                        ),
+                    ],
+                ),
+
+                # --------------------------------------------------
+                # BOTTOM LEFT INTRO CARD
+                # --------------------------------------------------
+                html.Div(
+                    id="intro-card",
+                    style={
+                        "opacity": "1",
+                        "pointerEvents": "auto",
+                        "transform": "translateY(0)",
+                    },
+                    children=[
+                        html.P(
+                            "DISCOVER THE DATA",
+                            className="card-eyebrow",
+                        ),
+                        html.H2("Find The Pattern"),
+                        html.P(
+                            (
+                                "Navigate the atlas using the icons on "
+                                "the left. Filter by year, region, or "
+                                "visual style to reveal new "
+                                "relationships across the dataset."
+                            ),
+                            className="intro-copy",
                         ),
                         html.Div(
-                            className="tip-card",
+                            className="intro-stat-row",
                             children=[
-                                html.H3("About this dashboard"),
-                                html.P(
-                                    "The time range above filters all charts. "
-                                    "Inside the first chart, use the style checklist "
-                                    "to show or hide individual art styles."
+                                html.Div(
+                                    [
+                                        html.Strong("10K+"),
+                                        html.Span("Artworks"),
+                                    ],
+                                    className="intro-stat",
+                                ),
+                                html.Div(
+                                    className="mini-art-stack",
+                                    children=[
+                                        html.Div(
+                                            className=(
+                                                "mini-art mini-art-one"
+                                            )
+                                        ),
+                                        html.Div(
+                                            className=(
+                                                "mini-art mini-art-two"
+                                            )
+                                        ),
+                                        html.Div(
+                                            className=(
+                                                "mini-art mini-art-three"
+                                            )
+                                        ),
+                                    ],
+                                ),
+                                html.Div(
+                                    "⋯",
+                                    className="intro-arrow",
                                 ),
                             ],
                         ),
                     ],
                 ),
-                # ------------------------------------------------
-                # MAIN CONTENT AREA
-                # ------------------------------------------------
-                html.Main(
-                    className="content-panel",
+
+                # --------------------------------------------------
+                # CHART
+                # --------------------------------------------------
+                html.Div(
+                    id="chart-area",
+                    style={
+                        "opacity": "0",
+                        "pointerEvents": "none",
+                        "transform": "scale(0.98)",
+                    },
+                ),
+
+                html.Div(
+                    id="chart-desc",
+                    style={
+                        "opacity": "0",
+                    },
+                ),
+
+                # --------------------------------------------------
+                # RIGHT PANEL
+                # --------------------------------------------------
+                html.Div(
+                    id="right-panel",
                     children=[
-                        html.Section(
-                            className="narrative-card",
-                            children=[
-                                html.H2("Background"),
-                                dcc.Markdown(
-                                    """
-                                    This dashboard visualizes a dataset of AI-generated artworks
-                                    collected between 2022 and 2024. Each record represents one
-                                    artwork tagged with a style, a region of origin, and a
-                                    popularity score.
-
-                                    Three questions guide the visualizations below:
-
-                                    - **Which styles grew or declined** across the period you selected?
-                                    - **How are styles distributed** across regions?
-                                    - **How popular are AI artworks** across the regions?
-                                    """
+                        html.Div(
+                            id="desc-card",
+                            children=[],
+                            style={
+                                "maxHeight": "0",
+                                "opacity": "0",
+                                "overflow": "hidden",
+                                "marginBottom": "0",
+                                "transition": (
+                                    "max-height 0.4s ease, "
+                                    "opacity 0.3s ease, "
+                                    "margin-bottom 0.4s ease"
                                 ),
-                            ],
+                            },
                         ),
-                        html.Section(
-                            className="folder-card",
+
+                        html.Div(
+                            id="info-card-wrapper",
                             children=[
                                 html.Div(
-                                    className="folder-heading",
+                                    id="info-card",
                                     children=[
-                                        html.H2("Visualizations"),
-                                        html.P("Choose a tab to switch between charts."),
+                                        html.Div(
+                                            className="info-card-header",
+                                            children=[
+                                                html.Div(
+                                                    [
+                                                        html.P(
+                                                            "FEATURED DATASET",
+                                                            className="card-eyebrow",
+                                                        ),
+                                                        html.H3("AIGC Atlas"),
+                                                    ]
+                                                ),
+                                                html.A(
+                                                    "↗",
+                                                    className="info-arrow",
+                                                    href="https://www.kaggle.com/datasets/waqi786/ai-generated-art-trends",
+                                                    target="_blank",
+                                                    rel="noopener noreferrer",
+                                                ),
+                                            ],
+                                        ),
+
+                                        html.P(
+                                            (
+                                                "A visual atlas of 10,000 "
+                                                "AI-generated artworks created "
+                                                "between 2022 and 2024. Explore "
+                                                "styles, regions, platforms, "
+                                                "engagement, and creative tools."
+                                            ),
+                                            className="info-copy",
+                                        ),
+
+                                        html.Div(
+                                            id="kpi-row",
+                                            children=[
+                                                html.Div(
+                                                    [
+                                                        html.H4("10K"),
+                                                        html.P("ARTWORKS"),
+                                                    ],
+                                                    className="kpi-pill",
+                                                ),
+                                                html.Div(
+                                                    [
+                                                        html.H4("10"),
+                                                        html.P("STYLES"),
+                                                    ],
+                                                    className="kpi-pill",
+                                                ),
+                                                html.Div(
+                                                    [
+                                                        html.H4("6"),
+                                                        html.P("REGIONS"),
+                                                    ],
+                                                    className="kpi-pill",
+                                                ),
+                                                html.Div(
+                                                    [
+                                                        html.H4("3YR"),
+                                                        html.P("SPAN"),
+                                                    ],
+                                                    className="kpi-pill",
+                                                ),
+                                            ],
+                                        ),
+
+                                        html.Div(
+                                            className="info-actions",
+                                            children=[
+                                                html.Button(
+                                                    "♡",
+                                                    id="favorite-btn",
+                                                    className="info-action",
+                                                    type="button",
+                                                    title="Save",
+                                                    n_clicks=0,
+                                                )
+                                            ],
+                                        ),
                                     ],
                                 ),
-                                dcc.Tabs(
-                                    id="plot-tabs",
-                                    value="trend",
-                                    className="folder-tabs",
-                                    children=[
-                                        dcc.Tab(
-                                            label="Style Trend",
-                                            value="trend",
-                                            className="folder-tab",
-                                            selected_className="folder-tab--selected",
-                                        ),
-                                        dcc.Tab(
-                                            label="Region × Style",
-                                            value="heatmap",
-                                            className="folder-tab",
-                                            selected_className="folder-tab--selected",
-                                        ),
-                                        dcc.Tab(
-                                            label="World Map",
-                                            value="worldmap",
-                                            className="folder-tab",
-                                            selected_className="folder-tab--selected",
-                                        ),
-                                    ],
-                                ),
-                                html.Div(id="tab-content", className="tab-content"),
                             ],
                         ),
                     ],
+                ),
+
+                dcc.Store(
+                    id="active-chart",
+                    data=None,
+                ),
+
+                dcc.Store(
+                    id="theme-mode",
+                    data="dark",
+                ),
+
+                dcc.Store(
+                    id="favorite-state",
+                    data=False,
+                ),
+
+                dcc.Store(
+                    id="filter-memory",
+                    data={
+                        "year": ["All"],
+                        "region": ["All"],
+                        "style": ["All"],
+                    },
                 ),
             ],
         ),
@@ -342,143 +1442,490 @@ app.layout = html.Div(
 
 
 # ------------------------------------------------------------
-# 7. CALLBACK: RENDER TAB CONTENT
+# CALLBACK: ACTIVE CHART
 # ------------------------------------------------------------
 
+@app.callback(
+    Output("active-chart", "data"),
+    [
+        Input(
+            {
+                "type": "nav-btn",
+                "index": item["id"],
+            },
+            "n_clicks",
+        )
+        for item in NAV_ITEMS
+    ]
+    + [
+        Input("bg", "n_clicks"),
+    ],
+    State("active-chart", "data"),
+)
+def set_active_chart(*args):
+    """
+    Open a chart from the left navigation.
 
-@app.callback(Output("tab-content", "children"), Input("plot-tabs", "value"), Input("quarter-range", "value"))
-def render_tab(active_tab, quarter_range):
-    start_q = ALL_QUARTERS[quarter_range[0]]
-    end_q = ALL_QUARTERS[quarter_range[1]]
-    filtered = df[(df["Quarter"] >= start_q) & (df["Quarter"] <= end_q)]
+    Clicking the active chart again, or clicking the background,
+    returns the interface to the landing view.
+    """
 
-    if active_tab == "trend":
-        return html.Div(
-            [
-                dcc.Markdown(
-                    """
-                    ### Style share over time
+    current_chart = args[-1]
 
-                    Each line shows what percentage of that year's total artworks
-                    belonged to a given style. Use the checklist on the right to
-                    add or remove styles from the chart.
-                    """,
-                    className="plot-narrative",
+    if not ctx.triggered:
+        return current_chart
+
+    triggered_id = ctx.triggered_id
+
+    if triggered_id == "bg":
+        return None
+
+    if isinstance(triggered_id, dict):
+        selected_chart = triggered_id.get("index")
+
+        if current_chart == selected_chart:
+            return None
+
+        return selected_chart
+
+    return current_chart
+
+
+# ------------------------------------------------------------
+# CALLBACK: RENDER CHART
+# ------------------------------------------------------------
+
+@app.callback(
+    Output("chart-area", "children"),
+    Output("chart-desc", "children"),
+    Output("main-title", "style"),
+    Output("intro-card", "style"),
+    Output("chart-area", "style"),
+    Output("chart-desc", "style"),
+    Output("desc-card", "children"),
+    Output("desc-card", "style"),
+    Input("active-chart", "data"),
+    Input("filter-year", "value"),
+    Input("filter-region", "value"),
+    Input("filter-style", "value"),
+)
+def render_chart(active_chart, year, region, style):
+    """
+    Render the selected visualization and update the interface state.
+    """
+
+    df_all = get_filtered(
+        year=year,
+        region=region,
+        style=style,
+    )
+
+    df_without_style = get_filtered(
+        year=year,
+        region=region,
+        style=["All"],
+    )
+
+    df_without_region = get_filtered(
+        year=year,
+        region=["All"],
+        style=style,
+    )
+
+    df_without_year = get_filtered(
+        year=["All"],
+        region=region,
+        style=style,
+    )
+
+    hidden_description_style = {
+        "maxHeight": "0",
+        "opacity": "0",
+        "overflow": "hidden",
+        "marginBottom": "0",
+        "transition": (
+            "max-height 0.4s ease, "
+            "opacity 0.3s ease, "
+            "margin-bottom 0.4s ease"
+        ),
+    }
+
+    visible_description_style = {
+        "maxHeight": "300px",
+        "opacity": "1",
+        "overflow": "hidden",
+        "marginBottom": "12px",
+        "transition": (
+            "max-height 0.4s ease, "
+            "opacity 0.3s ease, "
+            "margin-bottom 0.4s ease"
+        ),
+    }
+
+    if not active_chart:
+        return (
+            None,
+            None,
+
+            # Main title
+            {
+                "opacity": "1",
+                "pointerEvents": "none",
+                "transform": "translateY(0)",
+                "transition": (
+                    "opacity 0.35s ease, "
+                    "transform 0.35s ease"
                 ),
-                html.Div(
-                    # Consulted with AI how to put the checklist and the chart side by side so the checklist takes up less space and the chart stretches to fill the remaining width
-                    style={"display": "flex", "gap": "16px", "alignItems": "flex-start"},
-                    children=[
-                        html.Div(
-                            style={"minWidth": "150px"},
-                            children=[
-                                #Consulted with AI how to place the style checklist inside the chart tab rather than the left panel, so it only appears when the trend chart is active.
-                                html.Label("Art styles", className="control-label"),
-                                dcc.Checklist(
-                                    id="style-selector",
-                                    options=[{"label": s, "value": s} for s in ALL_STYLES],
-                                    value=ALL_STYLES[:5],
-                                    inputStyle={"marginRight": "6px"},
-                                    labelStyle={
-                                        "display": "block",
-                                        "marginBottom": "4px",
-                                        "fontSize": "13px",
-                                    },
-                                ),
-                            ],
-                        ),
-                        html.Div(
-                            style={"flex": "1", "minWidth": "0"},
-                            children=[
-                                dcc.Graph(
-                                    id="style-trend-chart",
-                                    className="plot-frame",
-                                ),
-                            ],
-                        ),
-                    ],
+            },
+
+            # Intro card
+            {
+                "opacity": "1",
+                "pointerEvents": "auto",
+                "transform": "translateY(0)",
+                "transition": (
+                    "opacity 0.35s ease, "
+                    "transform 0.35s ease"
                 ),
-                dcc.Markdown(
-                    "**Reading the chart:** A rising line means the style became more "
-                    "prominent relative to others over the selected period.",
-                    className="plot-narrative after",
+            },
+
+            # Chart area
+            {
+                "opacity": "0",
+                "pointerEvents": "none",
+                "transform": "scale(0.98)",
+                "transition": (
+                    "opacity 0.4s ease, "
+                    "transform 0.4s ease"
                 ),
-            ]
+            },
+
+            # Chart description
+            {
+                "opacity": "0",
+                "transition": "opacity 0.3s ease",
+            },
+
+            [],
+            hidden_description_style,
         )
 
+    chart_functions = {
+        "style-trend": create_style_trend,
+        "style-pop": create_style_popularity,
+        "region-bar": create_region_bar,
+        "heatmap": create_heatmap,
+        "world-map": create_bubble_map,
+        "platform": create_platform_bar,
+        "tools": create_tools_bar,
+    }
 
-    if active_tab == "heatmap":
-        return html.Div(
-            [
-                dcc.Markdown(
-                    """
-                    ### Artwork count by region and style
+    chart_function = chart_functions.get(active_chart)
 
-                    Each cell shows how many artworks from that region belong to
-                    that style. Darker blue means more artworks.
-                    """,
-                    className="plot-narrative",
-                ),
-                dcc.Graph(
-                    figure=create_heatmap_figure(filtered),
-                    className="plot-frame",
-                ),
-                dcc.Markdown(
-                    "**Reading the chart:** Look across a row to see which styles "
-                    "a region favors, or down a column to see which regions produce "
-                    "the most of a given style.",
-                    className="plot-narrative after",
-                ),
-            ]
+    if chart_function is None:
+        figure = create_empty_chart(
+            "The selected visualization could not be loaded."
         )
 
-    if active_tab == "worldmap":
-        return html.Div(
-            [
-                dcc.Markdown(
-                    """
-                    ### AI artwork distribution across regions
-
-                    Each bubble represents one region. Bubble size shows the number
-                    of artworks produced in that region during the selected period.
-                    Color shows the average Popularity Score — a composite measure of
-                    likes, shares, and views recorded on the platform where the artwork
-                    was posted. Scores range from 0 to 5000; higher means more engagement.
-                    Darker bubbles indicate higher average scores.
-                    Hover over a bubble to see the exact values.
-                    """,
-                    className="plot-narrative",
-                ),
-                dcc.Graph(
-                    figure=create_bubble_map_figure(filtered),
-                    className="plot-frame map-frame",
-                ),
-                dcc.Markdown(
-                    "**Reading the map:** Larger bubbles mean more artworks from that region. "
-                    "Darker color means higher average popularity score.",
-                    className="plot-narrative after",
-                ),
-            ]
+    elif active_chart == "style-trend":
+        figure = create_style_trend(
+            df_without_style,
+            style,
         )
 
-    return html.P("Select a tab.")
+    elif active_chart == "style-pop":
+        figure = create_style_popularity(
+            df_without_style,
+            style,
+        )
 
+    elif active_chart == "region-bar":
+        figure = create_region_bar(
+            df_without_region,
+            region,
+        )
+
+    elif active_chart == "world-map":
+        figure = create_bubble_map(
+            df_without_region,
+            region,
+        )
+
+    elif active_chart == "heatmap":
+        figure = create_heatmap(df_all)
+
+    elif active_chart == "platform":
+        figure = create_platform_bar(df_all)
+
+    elif active_chart == "tools":
+        figure = create_tools_bar(df_all)
+
+    else:
+        figure = create_empty_chart(
+            "The selected visualization could not be loaded."
+        )
+
+    chart = dcc.Graph(
+        figure=figure,
+        config={
+            "displayModeBar": False,
+            "responsive": True,
+        },
+        style={
+            "width": "100%",
+            "height": "100%",
+        },
+    )
+
+    chart_description = CHART_DESC.get(active_chart, "")
+
+    description_content = [
+        html.P(
+            "ACTIVE VIEW",
+            className="card-eyebrow",
+        ),
+        html.H3(
+            CHART_TITLES.get(
+                active_chart,
+                active_chart,
+            )
+        ),
+        html.P(chart_description),
+    ]
+
+    return (
+        chart,
+        html.P(chart_description),
+
+        # Main title
+        {
+            "opacity": "0",
+            "pointerEvents": "none",
+            "transform": "translateY(-18px)",
+            "transition": (
+                "opacity 0.35s ease, "
+                "transform 0.35s ease"
+            ),
+        },
+
+        # Intro card
+        {
+            "opacity": "0",
+            "pointerEvents": "none",
+            "transform": "translateY(24px)",
+            "transition": (
+                "opacity 0.35s ease, "
+                "transform 0.35s ease"
+            ),
+        },
+
+        # Chart area
+        {
+            "opacity": "1",
+            "pointerEvents": "all",
+            "transform": "scale(1)",
+            "transition": (
+                "opacity 0.4s ease, "
+                "transform 0.4s ease"
+            ),
+        },
+
+        # Chart description
+        {
+            "opacity": "1",
+            "transition": "opacity 0.4s ease 0.18s",
+        },
+
+        description_content,
+        visible_description_style,
+    )
+
+@app.callback(
+    Output("theme-mode", "data"),
+    Input("dark-mode-btn", "n_clicks"),
+    Input("light-mode-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def switch_theme(dark, light):
+
+    if ctx.triggered_id == "light-mode-btn":
+        return "light"
+
+    if ctx.triggered_id == "dark-mode-btn":
+        return "dark"
+
+    return "dark"
+
+@app.callback(
+    Output("bg-dark", "style"),
+    Output("bg-light", "style"),
+    Input("theme-mode", "data"),
+)
+def update_background(theme):
+
+    common = {
+        "position":"absolute",
+        "inset":"0",
+        "width":"100%",
+        "height":"100%",
+        "objectFit":"cover",
+        "transition":"opacity .8s ease",
+    }
+
+    if theme == "light":
+
+        return (
+            {**common, "opacity":0},
+            {**common, "opacity":1},
+        )
+
+    return (
+        {**common, "opacity":1},
+        {**common, "opacity":0},
+    )
+
+@app.callback(
+    [Output({"type": "nav-btn", "index": item["id"]}, "className")
+     for item in NAV_ITEMS]
+    + [
+        Output("dark-mode-btn", "className"),
+        Output("light-mode-btn", "className"),
+    ],
+    Input("active-chart", "data"),
+    Input("theme-mode", "data"),
+)
+def update_button_states(active_chart, theme):
+
+    nav_classes = []
+
+    for item in NAV_ITEMS:
+        if item["id"] == active_chart:
+            nav_classes.append("nav-btn nav-btn-primary")
+        else:
+            nav_classes.append("nav-btn")
+
+    dark_class = (
+        "utility-btn utility-btn-active"
+        if theme == "dark"
+        else "utility-btn"
+    )
+
+    light_class = (
+        "utility-btn utility-btn-active"
+        if theme == "light"
+        else "utility-btn"
+    )
+
+    return nav_classes + [dark_class, light_class]
+
+@app.callback(
+    Output("favorite-state", "data"),
+    Input("favorite-btn", "n_clicks"),
+    State("favorite-state", "data"),
+    prevent_initial_call=True,
+)
+def toggle_favorite(n, current):
+    return not current
+
+@app.callback(
+    Output("favorite-btn", "children"),
+    Output("favorite-btn", "className"),
+    Input("favorite-state", "data"),
+)
+def update_favorite_button(favorite):
+
+    if favorite:
+        return (
+            "♥",
+            "info-action info-action-liked",
+        )
+
+    return (
+        "♡",
+        "info-action",
+    )
+
+@app.callback(
+    Output("filter-year", "value"),
+    Output("filter-region", "value"),
+    Output("filter-style", "value"),
+    Output("filter-memory", "data"),
+
+    Input("filter-year", "value"),
+    Input("filter-region", "value"),
+    Input("filter-style", "value"),
+
+    State("filter-memory", "data"),
+)
+def clean_all(year, region, style, memory):
+
+    trigger = ctx.triggered_id
+
+    if memory is None:
+        memory = {
+            "year": ["All"],
+            "region": ["All"],
+            "style": ["All"],
+        }
+
+    def fix(current, previous):
+
+        current = current or []
+        previous = previous or ["All"]
+
+        if not isinstance(current, list):
+            current = [current]
+
+        # 什么都没选
+        if len(current) == 0:
+            return ["All"]
+
+        # 上一次是 All，现在点了其它
+        if previous == ["All"]:
+
+            if "All" in current and len(current) > 1:
+                current.remove("All")
+
+            return current
+
+        # 已经不是 All
+
+        # 用户重新点了 All
+        if "All" in current:
+            return ["All"]
+
+        # 普通多选
+        return current
+
+    new_year = memory["year"]
+    new_region = memory["region"]
+    new_style = memory["style"]
+
+    if trigger == "filter-year":
+        new_year = fix(year, memory["year"])
+
+    elif trigger == "filter-region":
+        new_region = fix(region, memory["region"])
+
+    elif trigger == "filter-style":
+        new_style = fix(style, memory["style"])
+
+    new_memory = {
+        "year": new_year,
+        "region": new_region,
+        "style": new_style,
+    }
+
+    return (
+        new_year,
+        new_region,
+        new_style,
+        new_memory,
+    )
 
 # ------------------------------------------------------------
-# 8. CALLBACK: UPDATE TREND CHART
+# RUN
 # ------------------------------------------------------------
-@app.callback(Output("style-trend-chart", "figure"),Input("style-selector", "value"), Input("quarter-range", "value"))
-def update_trend_chart(selected_styles, quarter_range):
-    if not selected_styles:
-        return {}
-    start_q = ALL_QUARTERS[quarter_range[0]]
-    end_q = ALL_QUARTERS[quarter_range[1]]
-    filtered = df[(df["Quarter"] >= start_q) & (df["Quarter"] <= end_q)]
-    return create_style_trend_figure(filtered, selected_styles)
 
-
-# ------------------------------------------------------------
-# 9. RUN THE APP
-# ------------------------------------------------------------
 if __name__ == "__main__":
     app.run(debug=True)
