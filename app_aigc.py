@@ -956,6 +956,15 @@ app.layout = html.Div(
     id="page-shell",
     children=[
         html.Div(
+            dcc.Location(
+                id="url",
+                refresh=False,
+            ),
+
+            html.Div(
+                id="resize-trigger",
+                style={"display": "none"},
+            ),
             id="root",
             children=[
                 # Background
@@ -1440,6 +1449,23 @@ app.layout = html.Div(
     ],
 )
 
+app.clientside_callback(
+    """
+    function(pathname) {
+        setTimeout(function() {
+            window.dispatchEvent(new Event("resize"));
+        }, 300);
+
+        setTimeout(function() {
+            window.dispatchEvent(new Event("resize"));
+        }, 1000);
+
+        return "";
+    }
+    """,
+    Output("resize-trigger", "children"),
+    Input("url", "pathname"),
+)
 
 # ------------------------------------------------------------
 # CALLBACK: ACTIVE CHART
