@@ -822,7 +822,6 @@ a,
    ============================================================ */
 
 #right-panel{
-
     position:absolute;
     z-index:30;
 
@@ -835,7 +834,14 @@ a,
     flex-direction:column;
 }
 
+/* 打开图表后，让黄色卡片顶部永远与图表顶部对齐 */
+#right-panel:has(#desc-card:not(:empty)){
+    top:126px;
+    bottom:auto;
+}
+
 #info-card-wrapper{
+    margin-top: 20px;
 
     animation:right-panel-float 6s ease-in-out infinite;
 
@@ -1043,8 +1049,6 @@ a,
   background: rgb(252, 210, 58);
 
   color: #1e1d2b;
-
-  transform: translateY(-56px);
 }
 
 #desc-card h3 {
